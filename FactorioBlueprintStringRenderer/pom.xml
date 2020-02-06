@@ -30,7 +30,7 @@
                     </descriptorRefs>
                     <archive>
                         <manifest>
-                            <mainClass>org.sample.App</mainClass>
+                            <mainClass>com.demod.fbsr.app.StartAllServices</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
