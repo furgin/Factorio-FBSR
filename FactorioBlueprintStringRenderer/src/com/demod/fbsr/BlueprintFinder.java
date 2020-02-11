@@ -27,189 +27,192 @@ import com.google.common.util.concurrent.Uninterruptibles;
 
 public final class BlueprintFinder {
 
-	public interface Provider {
-		public interface InputStreamFactory {
-			public InputStream get() throws Exception;
-		}
+    public interface Provider {
+        public interface InputStreamFactory {
+            public InputStream get() throws Exception;
+        }
 
-		@FunctionalInterface
-		public interface Listener {
-			default void handleConnection(URLConnection connection) {
-				AtomicBoolean first = new AtomicBoolean(true);
-				handleInputStreamFactory(() -> {
-					if (first.getAndSet(false)) {
-						return connection.getInputStream();
-					} else {
-						return WebUtils.openConnectionWithFakeUserAgent(connection.getURL()).getInputStream();
-					}
-				});
-			}
+        @FunctionalInterface
+        public interface Listener {
+            default void handleConnection(URLConnection connection) {
+                AtomicBoolean first = new AtomicBoolean(true);
+                handleInputStreamFactory(() -> {
+                    if (first.getAndSet(false)) {
+                        return connection.getInputStream();
+                    } else {
+                        return WebUtils.openConnectionWithFakeUserAgent(connection.getURL()).getInputStream();
+                    }
+                });
+            }
 
-			void handleInputStreamFactory(InputStreamFactory factory);
+            void handleInputStreamFactory(InputStreamFactory factory);
 
-			default void handleURL(String url) throws Exception {
-				handleConnection(WebUtils.openConnectionWithFakeUserAgent(new URL(url)));
-			}
+            default void handleURL(String url) throws Exception {
+                handleConnection(WebUtils.openConnectionWithFakeUserAgent(new URL(url)));
+            }
 
-		}
+        }
 
-		@FunctionalInterface
-		public interface Mapper {
-			void matched(Matcher matcher, Listener listener) throws Exception;
-		}
+        @FunctionalInterface
+        public interface Mapper {
+            void matched(Matcher matcher, Listener listener) throws Exception;
+        }
 
-		public Mapper getMapper();
+        public Mapper getMapper();
 
-		public Pattern getPattern();
-	}
+        public Pattern getPattern();
+    }
 
-	private enum Providers implements Provider {
-		PASTEBIN("pastebin\\.com/(?<id>[A-Za-z0-9]{4,})", m -> "https://pastebin.com/raw/" + m.group("id")), //
+    private enum Providers implements Provider {
+        PASTEBIN("pastebin\\.com/(?<id>[A-Za-z0-9]{4,})", m -> "https://pastebin.com/raw/" + m.group("id")), //
 
-		HASTEBIN("hastebin\\.com/(?<id>[A-Za-z0-9]{4,})", m -> "https://hastebin.com/raw/" + m.group("id")), //
+        HASTEBIN("hastebin\\.com/(?<id>[A-Za-z0-9]{4,})", m -> "https://hastebin.com/raw/" + m.group("id")), //
 
-		GITLAB("gitlab\\.com/snippets/(?<id>[A-Za-z0-9]+)",
-				m -> "https://gitlab.com/snippets/" + m.group("id") + "/raw"), //
+        GITLAB("gitlab\\.com/snippets/(?<id>[A-Za-z0-9]+)",
+                m -> "https://gitlab.com/snippets/" + m.group("id") + "/raw"), //
 
-		GIST("gist\\.github\\.com/[-a-zA-Z0-9]+/(?<id>[a-z0-9]+)", (m, l) -> {
-			JSONObject response = WebUtils.readJsonFromURL("https://api.github.com/gists/" + m.group("id"));
-			JSONObject filesJson = response.getJSONObject("files");
-			Utils.<JSONObject>forEach(filesJson, (k, v) -> {
-				if (v.getString("type").startsWith("text/plain")) {
-					l.handleURL(v.getString("raw_url"));
-				}
-			});
-		}), //
+        GIST("gist\\.github\\.com/[-a-zA-Z0-9]+/(?<id>[a-z0-9]+)", (m, l) -> {
+            JSONObject response = WebUtils.readJsonFromURL("https://api.github.com/gists/" + m.group("id"));
+            JSONObject filesJson = response.getJSONObject("files");
+            Utils.<JSONObject>forEach(filesJson, (k, v) -> {
+                if (v.getString("type").startsWith("text/plain")) {
+                    l.handleURL(v.getString("raw_url"));
+                }
+            });
+        }), //
 
-		DROPBOX("\\b(?<url>https://www\\.dropbox\\.com/s/[^\\s?]+)", m -> m.group("url") + "?raw=1"), //
+        DROPBOX("\\b(?<url>https://www\\.dropbox\\.com/s/[^\\s?]+)", m -> m.group("url") + "?raw=1"), //
 
-		FACTORIOPRINTS("factorioprints\\.com/view/(?<id>[-_A-Za-z0-9]+)",
-				m -> "https://facorio-blueprints.firebaseio.com/blueprints/" + m.group("id") + ".json"), //
+        FACTORIOPRINTS("factorioprints\\.com/view/(?<id>[-_A-Za-z0-9]+)",
+                m -> "https://facorio-blueprints.firebaseio.com/blueprints/" + m.group("id") + ".json"), //
 
-		GOOGLEDOCS("docs\\.google\\.com/document/d/(?<id>[-_A-Za-z0-9]+)",
-				m -> "https://docs.google.com/document/d/" + m.group("id") + "/export?format=txt"), //
-		GOOGLEDRIVE("drive\\.google\\.com/open\\?id=(?<id>[-_A-Za-z0-9]+)",
-				m -> "https://drive.google.com/uc?id=" + m.group("id") + "&export=download"), //
+        FACTORIOSCHOOL("factorio\\.school/view/(?<id>[-_A-Za-z0-9]+)",
+                m -> "https://www.factorio.school/api/blueprint/" + m.group("id")), //
 
-		TEXT_URLS("\\b(?<url>(?:https?|ftp)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|])", (m, l) -> {
-			URL url = new URL(m.group("url"));
-			URLConnection connection = WebUtils.openConnectionWithFakeUserAgent(url);
-			Optional<String> contentType = Optional.ofNullable(connection.getContentType());
-			if (contentType.isPresent() && contentType.get().startsWith("text/plain")) {
-				l.handleConnection(connection);
-			}
-		}), //
+        GOOGLEDOCS("docs\\.google\\.com/document/d/(?<id>[-_A-Za-z0-9]+)",
+                m -> "https://docs.google.com/document/d/" + m.group("id") + "/export?format=txt"), //
+        GOOGLEDRIVE("drive\\.google\\.com/open\\?id=(?<id>[-_A-Za-z0-9]+)",
+                m -> "https://drive.google.com/uc?id=" + m.group("id") + "&export=download"), //
 
-		;
+        TEXT_URLS("\\b(?<url>(?:https?|ftp)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|])", (m, l) -> {
+            URL url = new URL(m.group("url"));
+            URLConnection connection = WebUtils.openConnectionWithFakeUserAgent(url);
+            Optional<String> contentType = Optional.ofNullable(connection.getContentType());
+            if (contentType.isPresent() && contentType.get().startsWith("text/plain")) {
+                l.handleConnection(connection);
+            }
+        }), //
 
-		private Pattern pattern;
-		private final Mapper mapper;
+        ;
 
-		private Providers(String regex, Function<Matcher, String> simpleMapper) {
-			this(regex, (m, l) -> l.handleURL(simpleMapper.apply(m)));
-		}
+        private Pattern pattern;
+        private final Mapper mapper;
 
-		private Providers(String regex, Mapper mapper) {
-			this.mapper = mapper;
-			pattern = Pattern.compile(regex);
-		}
+        private Providers(String regex, Function<Matcher, String> simpleMapper) {
+            this(regex, (m, l) -> l.handleURL(simpleMapper.apply(m)));
+        }
 
-		@Override
-		public Mapper getMapper() {
-			return mapper;
-		}
+        private Providers(String regex, Mapper mapper) {
+            this.mapper = mapper;
+            pattern = Pattern.compile(regex);
+        }
 
-		@Override
-		public Pattern getPattern() {
-			return pattern;
-		}
-	}
+        @Override
+        public Mapper getMapper() {
+            return mapper;
+        }
 
-	private static final List<Provider> providers = new ArrayList<>();
+        @Override
+        public Pattern getPattern() {
+            return pattern;
+        }
+    }
 
-	static {
-		Arrays.stream(Providers.values()).forEach(BlueprintFinder::registerProvider);
-	}
+    private static final List<Provider> providers = new ArrayList<>();
 
-	private static final Pattern blueprintPattern = Pattern.compile("([0-9][A-Za-z0-9+\\/=\\r\\n]{90,})");
+    static {
+        Arrays.stream(Providers.values()).forEach(BlueprintFinder::registerProvider);
+    }
 
-	private static void findBlueprints(InputStream in, TaskReporting reporting, Set<String> results) {
-		try (Scanner scanner = new Scanner(in)) {
-			String blueprintString;
-			while ((blueprintString = scanner.findWithinHorizon(blueprintPattern, 4000000)) != null) {
-				try {
-					results.add(blueprintString);
-					reporting.addBlueprintString(blueprintString);
-				} catch (Exception e) {
-					reporting.addException(e);
-				}
-			}
-		}
-	}
+    private static final Pattern blueprintPattern = Pattern.compile("([0-9][A-Za-z0-9+\\/=\\r\\n]{90,})");
 
-	private static void findProviders(String content, TaskReporting reporting, Set<String> results) {
-		HashSet<String> uniqueCheck = new HashSet<>();
-		for (Provider provider : providers) {
-			Matcher matcher = provider.getPattern().matcher(content);
-			while (matcher.find()) {
-				try {
-					String matchString = content.substring(matcher.start(), matcher.end());
+    private static void findBlueprints(InputStream in, TaskReporting reporting, Set<String> results) {
+        try (Scanner scanner = new Scanner(in)) {
+            String blueprintString;
+            while ((blueprintString = scanner.findWithinHorizon(blueprintPattern, 4000000)) != null) {
+                try {
+                    results.add(blueprintString);
+                    reporting.addBlueprintString(blueprintString);
+                } catch (Exception e) {
+                    reporting.addException(e);
+                }
+            }
+        }
+    }
 
-					System.out.println("\t[" + provider + "] " + matchString);
+    private static void findProviders(String content, TaskReporting reporting, Set<String> results) {
+        HashSet<String> uniqueCheck = new HashSet<>();
+        for (Provider provider : providers) {
+            Matcher matcher = provider.getPattern().matcher(content);
+            while (matcher.find()) {
+                try {
+                    String matchString = content.substring(matcher.start(), matcher.end());
 
-					if (!uniqueCheck.add(matchString)) {
-						System.out.println("\t\tDuplicate match!");
-						continue;
-					}
+                    System.out.println("\t[" + provider + "] " + matchString);
 
-					provider.getMapper().matched(matcher, in -> {
-						List<Exception> tryExceptions = new ArrayList<>();
-						for (int tries = 6; tries >= 0; tries--) {
-							try {
-								findBlueprints(in.get(), reporting, results);
-								break;
-							} catch (Exception e) {
-								tryExceptions.add(e);
-							}
-							if (tries > 1) {
-								Uninterruptibles.sleepUninterruptibly(10, TimeUnit.SECONDS);
-							} else {
-								tryExceptions.forEach(e -> reporting.addException(e));
-							}
-						}
-					});
-				} catch (Exception e) {
-					reporting.addException(e);
-				}
-			}
-		}
-	}
+                    if (!uniqueCheck.add(matchString)) {
+                        System.out.println("\t\tDuplicate match!");
+                        continue;
+                    }
 
-	public static synchronized void registerProvider(Provider provider) {
-		providers.add(provider);
-	}
+                    provider.getMapper().matched(matcher, in -> {
+                        List<Exception> tryExceptions = new ArrayList<>();
+                        for (int tries = 6; tries >= 0; tries--) {
+                            try {
+                                findBlueprints(in.get(), reporting, results);
+                                break;
+                            } catch (Exception e) {
+                                tryExceptions.add(e);
+                            }
+                            if (tries > 1) {
+                                Uninterruptibles.sleepUninterruptibly(10, TimeUnit.SECONDS);
+                            } else {
+                                tryExceptions.forEach(e -> reporting.addException(e));
+                            }
+                        }
+                    });
+                } catch (Exception e) {
+                    reporting.addException(e);
+                }
+            }
+        }
+    }
 
-	public static List<BlueprintStringData> search(String content, TaskReporting reporting) {
-		List<BlueprintStringData> results = new ArrayList<>();
-		for (String blueprintString : searchRaw(content, reporting)) {
-			try {
-				results.add(new BlueprintStringData(blueprintString));
-			} catch (ZipException e) {
-				reporting.addInfo("Sorry, but I can't read those kind of blueprints just yet.");
-			} catch (IllegalArgumentException | IOException e) {
-				reporting.addException(e);
-			}
-		}
-		return results;
-	}
+    public static synchronized void registerProvider(Provider provider) {
+        providers.add(provider);
+    }
 
-	public static List<String> searchRaw(String content, TaskReporting reporting) {
-		Set<String> results = new LinkedHashSet<>();
-		findBlueprints(new ByteArrayInputStream(content.getBytes()), reporting, results);
-		findProviders(content, reporting, results);
-		return new ArrayList<>(results);
-	}
+    public static List<BlueprintStringData> search(String content, TaskReporting reporting) {
+        List<BlueprintStringData> results = new ArrayList<>();
+        for (String blueprintString : searchRaw(content, reporting)) {
+            try {
+                results.add(new BlueprintStringData(blueprintString));
+            } catch (ZipException e) {
+                reporting.addInfo("Sorry, but I can't read those kind of blueprints just yet.");
+            } catch (IllegalArgumentException | IOException e) {
+                reporting.addException(e);
+            }
+        }
+        return results;
+    }
 
-	private BlueprintFinder() {
-	}
+    public static List<String> searchRaw(String content, TaskReporting reporting) {
+        Set<String> results = new LinkedHashSet<>();
+        findBlueprints(new ByteArrayInputStream(content.getBytes()), reporting, results);
+        findProviders(content, reporting, results);
+        return new ArrayList<>(results);
+    }
+
+    private BlueprintFinder() {
+    }
 }

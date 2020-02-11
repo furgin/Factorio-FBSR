@@ -1,5 +1,19 @@
 package com.demod.fbsr.app;
 
+import com.demod.factorio.Config;
+import com.demod.fbsr.Blueprint;
+import com.demod.fbsr.BlueprintFinder;
+import com.demod.fbsr.BlueprintStringData;
+import com.demod.fbsr.FBSR;
+import com.demod.fbsr.TaskReporting;
+import com.demod.fbsr.WebUtils;
+import com.google.common.util.concurrent.AbstractIdleService;
+import org.json.JSONObject;
+import org.pircbotx.Configuration;
+import org.pircbotx.PircBotX;
+import org.pircbotx.hooks.Event;
+import org.pircbotx.hooks.types.GenericMessageEvent;
+
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.URL;
@@ -9,21 +23,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.stream.Collectors;
-
-import org.json.JSONObject;
-import org.pircbotx.Configuration;
-import org.pircbotx.PircBotX;
-import org.pircbotx.hooks.Event;
-import org.pircbotx.hooks.types.GenericMessageEvent;
-
-import com.demod.factorio.Config;
-import com.demod.fbsr.Blueprint;
-import com.demod.fbsr.BlueprintFinder;
-import com.demod.fbsr.BlueprintStringData;
-import com.demod.fbsr.FBSR;
-import com.demod.fbsr.TaskReporting;
-import com.demod.fbsr.WebUtils;
-import com.google.common.util.concurrent.AbstractIdleService;
 
 public class BlueprintBotIRCService extends AbstractIdleService {
 

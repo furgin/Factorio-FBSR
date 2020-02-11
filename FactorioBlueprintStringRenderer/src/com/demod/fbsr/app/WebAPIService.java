@@ -14,7 +14,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.rapidoid.http.MediaType;
 import org.rapidoid.setup.App;
-import org.rapidoid.setup.On;
 
 import com.demod.factorio.Config;
 import com.demod.factorio.Utils;
@@ -25,6 +24,7 @@ import com.demod.fbsr.FBSR;
 import com.demod.fbsr.TaskReporting;
 import com.demod.fbsr.WebUtils;
 import com.google.common.util.concurrent.AbstractIdleService;
+import org.rapidoid.setup.Setup;
 
 public class WebAPIService extends AbstractIdleService {
 
@@ -63,9 +63,9 @@ public class WebAPIService extends AbstractIdleService {
 		String address = configJson.optString("bind", "0.0.0.0");
 		int port = configJson.optInt("port", 80);
 
-		On.address(address).port(port);
+		Setup webapi = HttpServers.create(address,port);
 
-		On.post("/blueprint").serve((req, resp) -> {
+		webapi.post("/blueprint").serve((req, resp) -> {
 			System.out.println("Web API POST!");
 			TaskReporting reporting = new TaskReporting();
 			try {
