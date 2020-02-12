@@ -49,6 +49,7 @@ public class ImageService extends AbstractIdleService {
         images.get("/images/{file}").serve((req, resp) -> {
 
             resp.contentType(MediaType.IMAGE_PNG);
+            resp.header("Cache-Control", "max-age=31556926, public");
             resp.file(new File(folder, req.param("file")));
 
             return resp;

@@ -1,6 +1,6 @@
 #!/bin/sh
 
-VERSION=0.6
+VERSION=0.7
 
 ID=`docker images registry.furgin.org/furgin/factorio-fbsr:$VERSION --format "{{.ID}}"`
 
