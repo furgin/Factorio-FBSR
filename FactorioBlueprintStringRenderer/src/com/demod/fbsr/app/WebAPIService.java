@@ -1,182 +1,179 @@
 package com.demod.fbsr.app;
 
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
-import java.util.List;
-import java.util.Map.Entry;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
-import javax.imageio.ImageIO;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-import org.rapidoid.http.MediaType;
-import org.rapidoid.setup.App;
-
 import com.demod.factorio.Config;
 import com.demod.factorio.Utils;
 import com.demod.fbsr.Blueprint;
 import com.demod.fbsr.BlueprintFinder;
 import com.demod.fbsr.BlueprintStringData;
-import com.demod.fbsr.FBSR;
 import com.demod.fbsr.TaskReporting;
-import com.demod.fbsr.WebUtils;
 import com.google.common.util.concurrent.AbstractIdleService;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.rapidoid.http.MediaType;
+import org.rapidoid.setup.App;
 import org.rapidoid.setup.Setup;
+
+import java.io.File;
+import java.util.List;
+import java.util.Map.Entry;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class WebAPIService extends AbstractIdleService {
 
-	private JSONObject configJson;
+    private JSONObject configJson;
 
-	private String saveToLocalStorage(File folder, BufferedImage image) throws IOException {
-		if (!folder.exists()) {
-			folder.mkdirs();
-		}
+    @Override
+    protected void shutDown() throws Exception {
+        ServiceFinder.removeService(this);
+        App.shutdown();
+    }
 
-		File imageFile;
-		long id = System.currentTimeMillis();
-		String fileName;
-		while ((imageFile = new File(folder, fileName = "Blueprint" + id + ".png")).exists()) {
-			id++;
-		}
+    @Override
+    protected void startUp() throws Exception {
+        ServiceFinder.addService(this);
 
-		ImageIO.write(image, "PNG", imageFile);
+        configJson = Config.get().getJSONObject("webapi");
 
-		return fileName;
-	}
+        String address = configJson.optString("bind", "0.0.0.0");
+        int port = configJson.optInt("port", 80);
 
-	@Override
-	protected void shutDown() throws Exception {
-		ServiceFinder.removeService(this);
+        Setup webapi = HttpServers.create(address, port);
 
-		App.shutdown();
-	}
+        webapi.options("/blueprint").serve((req, resp) -> {
+            System.out.println("Web API OPTIONS!");
+            resp.header("Access-Control-Allow-Origin", "*");
+            resp.header("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, HEAD, OPTIONS");
+            resp.header("Access-Control-Allow-Headers", "*");
+            resp.header("Access-Control-Request-Headers", "*");
+            resp.header("Allow", "OPTIONS, POST");
+            resp.body("".getBytes());
+            resp.code(200);
+            return resp;
+        });
 
-	@Override
-	protected void startUp() throws Exception {
-		ServiceFinder.addService(this);
+        webapi.post("/blueprint").serve((req, resp) -> {
+            System.out.println("Web API POST!");
+            resp.header("Access-Control-Allow-Origin", "*");
+            resp.header("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, HEAD, OPTIONS");
+            resp.header("Access-Control-Request-Headers", "*");
+            resp.header("Access-Control-Allow-Headers", "*");
 
-		configJson = Config.get().getJSONObject("webapi");
+            TaskReporting reporting = new TaskReporting();
+            try {
+                try {
+                    if (req.body() == null) {
+                        resp.code(400);
+                        resp.plain("Body is empty!");
+                        reporting.addException(new IllegalArgumentException("Body is empty!"));
+                        return resp;
+                    }
 
-		String address = configJson.optString("bind", "0.0.0.0");
-		int port = configJson.optInt("port", 80);
+                    JSONObject body;
+                    try {
+                        body = new JSONObject(new String(req.body()));
+                    } catch (Exception e) {
+                        reporting.addException(e);
+                        resp.code(400);
+                        resp.plain("Malformed JSON: " + e.getMessage());
+                        return resp;
+                    }
+                    reporting.setContext(body.toString(2));
 
-		Setup webapi = HttpServers.create(address,port);
+                    /*
+                     * 	{
+                     * 		"blueprint": "0e...", 		(required)
+                     * 		"max-width": 1234,
+                     * 		"max-height": 1234,
+                     * 		"show-info-panels": false
+                     * 	}
+                     * 				|
+                     * 				v
+                     * {
+                     * 		"info": [
+                     * 			"message 1!", "message 2!", ...
+                     * 		],
+                     * 		"images": [
+                     * 			{
+                     * 				"label": "Blueprint Label",
+                     * 				"link": "https://cdn.discordapp.com/..." (or) "1563569893008.png"
+                     * 			}
+                     * 		]
+                     * }
+                     */
 
-		webapi.post("/blueprint").serve((req, resp) -> {
-			System.out.println("Web API POST!");
-			TaskReporting reporting = new TaskReporting();
-			try {
-				try {
-					if (req.body() == null) {
-						resp.code(400);
-						resp.plain("Body is empty!");
-						reporting.addException(new IllegalArgumentException("Body is empty!"));
-						return resp;
-					}
+                    String content = body.getString("blueprint");
 
-					JSONObject body;
-					try {
-						body = new JSONObject(new String(req.body()));
-					} catch (Exception e) {
-						reporting.addException(e);
-						resp.code(400);
-						resp.plain("Malformed JSON: " + e.getMessage());
-						return resp;
-					}
-					reporting.setContext(body.toString(2));
+                    List<BlueprintStringData> blueprintStrings = BlueprintFinder.search(content, reporting);
+                    List<Blueprint> blueprints = blueprintStrings.stream().flatMap(s -> s.getBlueprints().stream())
+                            .collect(Collectors.toList());
 
-					/*
-					 * 	{
-					 * 		"blueprint": "0e...", 		(required)
-					 * 		"max-width": 1234,
-					 * 		"max-height": 1234,
-					 * 		"show-info-panels": false
-					 * 	}
-					 * 				|
-					 * 				v
-					 * {
-					 * 		"info": [
-					 * 			"message 1!", "message 2!", ...
-					 * 		],
-					 * 		"images": [
-					 * 			{
-					 * 				"label": "Blueprint Label",
-					 * 				"link": "https://cdn.discordapp.com/..." (or) "1563569893008.png"
-					 * 			}
-					 * 		]
-					 * }
-					 */
+                    for (Blueprint blueprint : blueprints) {
+                        try {
+                            File localStorageFolder = new File(configJson.getString("local-storage"));
+                            File imageFile = LocalFileStorage.loadOrRender(localStorageFolder, blueprint, reporting);
+                            String imageLink = Objects.requireNonNull(imageFile).getName();
 
-					String content = body.getString("blueprint");
+//							BufferedImage image = FBSR.renderBlueprint(blueprint, reporting, body);
+//							if (configJson.optBoolean("use-local-storage", false)) {
+//								File localStorageFolder = new File(configJson.getString("local-storage"));
+//								String imageLink = saveToLocalStorage(localStorageFolder, image);
+                            reporting.addImage(blueprint.getLabel(), imageLink);
+                            reporting.addLink(imageLink);
+//							} else {
+//								reporting.addImage(blueprint.getLabel(),
+//										WebUtils.uploadToHostingService("blueprint.png", image).toString());
+//							}
+                        } catch (Exception e) {
+                            reporting.addException(e);
+                        }
+                    }
+                } catch (Exception e) {
+                    reporting.addException(e);
+                }
 
-					List<BlueprintStringData> blueprintStrings = BlueprintFinder.search(content, reporting);
-					List<Blueprint> blueprints = blueprintStrings.stream().flatMap(s -> s.getBlueprints().stream())
-							.collect(Collectors.toList());
+                JSONObject result = new JSONObject();
+                Utils.terribleHackToHaveOrderedJSONObject(result);
 
-					for (Blueprint blueprint : blueprints) {
-						try {
-							BufferedImage image = FBSR.renderBlueprint(blueprint, reporting, body);
-							if (configJson.optBoolean("use-local-storage", false)) {
-								File localStorageFolder = new File(configJson.getString("local-storage"));
-								String imageLink = saveToLocalStorage(localStorageFolder, image);
-								reporting.addImage(blueprint.getLabel(), imageLink);
-								reporting.addLink(imageLink);
-							} else {
-								reporting.addImage(blueprint.getLabel(),
-										WebUtils.uploadToHostingService("blueprint.png", image).toString());
-							}
-						} catch (Exception e) {
-							reporting.addException(e);
-						}
-					}
-				} catch (Exception e) {
-					reporting.addException(e);
-				}
+                if (!reporting.getExceptions().isEmpty()) {
+                    reporting.addInfo(
+                            "There was a problem completing your request. I have contacted my programmer to fix it for you!");
+                    reporting.getExceptions().forEach(Exception::printStackTrace);
+                }
 
-				JSONObject result = new JSONObject();
-				Utils.terribleHackToHaveOrderedJSONObject(result);
+                if (!reporting.getInfo().isEmpty()) {
+                    result.put("info", new JSONArray(reporting.getInfo()));
+                }
 
-				if (!reporting.getExceptions().isEmpty()) {
-					reporting.addInfo(
-							"There was a problem completing your request. I have contacted my programmer to fix it for you!");
-					reporting.getExceptions().forEach(Exception::printStackTrace);
-				}
+                if (!reporting.getImages().isEmpty()) {
+                    JSONArray images = new JSONArray();
+                    for (Entry<Optional<String>, String> pair : reporting.getImages()) {
+                        JSONObject image = new JSONObject();
+                        Utils.terribleHackToHaveOrderedJSONObject(image);
+                        pair.getKey().ifPresent(l -> image.put("label", l));
+                        image.put("link", pair.getValue());
+                        images.put(image);
+                    }
+                    result.put("images", images);
+                }
 
-				if (!reporting.getInfo().isEmpty()) {
-					result.put("info", new JSONArray(reporting.getInfo()));
-				}
+                resp.contentType(MediaType.JSON);
+                resp.body(result.toString(2).getBytes());
 
-				if (!reporting.getImages().isEmpty()) {
-					JSONArray images = new JSONArray();
-					for (Entry<Optional<String>, String> pair : reporting.getImages()) {
-						JSONObject image = new JSONObject();
-						Utils.terribleHackToHaveOrderedJSONObject(image);
-						pair.getKey().ifPresent(l -> image.put("label", l));
-						image.put("link", pair.getValue());
-						images.put(image);
-					}
-					result.put("images", images);
-				}
+                return resp;
 
-				resp.contentType(MediaType.JSON);
-				resp.body(result.toString(2).getBytes());
+            } finally {
+                ServiceFinder.findService(BlueprintBotDiscordService.class)
+                        .ifPresent(s -> s.sendReport(
+                                "Web API / " + req.clientIpAddress() + " / "
+                                        + Optional.ofNullable(req.header("User-Agent", null)).orElse("<Unknown>"),
+                                null, reporting));
+            }
 
-				return resp;
+        });
 
-			} finally {
-				ServiceFinder.findService(BlueprintBotDiscordService.class)
-						.ifPresent(s -> s.sendReport(
-								"Web API / " + req.clientIpAddress() + " / "
-										+ Optional.ofNullable(req.header("User-Agent", null)).orElse("<Unknown>"),
-								null, reporting));
-			}
-
-		});
-
-		System.out.println("Web API Initialized at " + address + ":" + port);
-	}
+        System.out.println("Web API Initialized at " + address + ":" + port);
+    }
 
 }

@@ -2,11 +2,14 @@ package com.demod.fbsr.app;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.awt.*;
 import java.io.ByteArrayInputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.InvalidKeyException;
+import javax.swing.text.html.Option;
 import javax.xml.bind.DatatypeConverter;
 
 import com.demod.factorio.Config;
@@ -23,8 +26,6 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.json.JSONTokener;
-import org.rapidoid.annotation.Run;
 import org.rapidoid.http.Req;
 import org.rapidoid.http.Resp;
 import org.rapidoid.setup.App;
@@ -35,6 +36,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,6 +50,7 @@ public class BlueprintBotSlackService extends AbstractIdleService {
     private static OkHttpClient client = new OkHttpClient();
     private JSONObject configJson;
     private final ExecutorService exec = Executors.newFixedThreadPool(2);
+
 
     private static Optional<String> hash(String sharedKey, String message) {
         try {
@@ -67,7 +70,10 @@ public class BlueprintBotSlackService extends AbstractIdleService {
                 .post(body)
                 .build();
         Response response = client.newCall(request).execute();
-        System.out.println(response.body().string());
+        if (!response.isSuccessful()) {
+            System.out.println("response: " + response.body().string());
+        }
+        response.close();
     }
 
     private class FindBlueprintTask implements Runnable {
@@ -75,7 +81,7 @@ public class BlueprintBotSlackService extends AbstractIdleService {
         private final String content;
         private final String responseUrl;
 
-        public FindBlueprintTask(String content, String responseUrl) {
+        private FindBlueprintTask(String content, String responseUrl) {
             this.content = content;
             this.responseUrl = responseUrl;
         }
@@ -102,7 +108,7 @@ public class BlueprintBotSlackService extends AbstractIdleService {
 
                     JSONObject text = new JSONObject();
                     text.put("type", "mrkdwn");
-                    text.put("text", "Generating " + blueprints.size() + " images...");
+                    text.put("text", "Blueprint Images");
                     messageSection.put("text", text);
 
                     for (Blueprint blueprint : blueprints) {
@@ -159,19 +165,10 @@ public class BlueprintBotSlackService extends AbstractIdleService {
                 JSONObject messageSection = new JSONObject();
                 messageSection.put("type", "section");
 
-                try{
-                    URL url = new URL(content);
-                    JSONObject text = new JSONObject();
-                    text.put("type", "mrkdwn");
-                    text.put("text", url.toString());
-                    messageSection.put("text", text);
-                } catch (MalformedURLException e) {
-                    // ignore
-                }
-
-                BufferedImage image = FBSR.renderBlueprint(blueprint, reporting, new JSONObject());
                 File localStorageFolder = new File(configJson.getString("local-storage"));
-                String imageLink = saveToLocalStorage(localStorageFolder, image);
+                File imageFile = LocalFileStorage.loadOrRender(localStorageFolder, blueprint, reporting);
+                String imageLink = Objects.requireNonNull(imageFile).getName();
+
                 reporting.addImage(blueprint.getLabel(), imageLink);
                 reporting.addLink(imageLink);
 
@@ -191,7 +188,7 @@ public class BlueprintBotSlackService extends AbstractIdleService {
 
                 sendMessage(result, responseUrl);
 
-            } catch (IOException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
                 reporting.addException(e);
             }
@@ -206,28 +203,12 @@ public class BlueprintBotSlackService extends AbstractIdleService {
     }
 
     @Override
-    protected void shutDown() throws Exception {
+    protected void shutDown() {
         ServiceFinder.removeService(this);
         App.shutdown();
         exec.shutdown();
     }
 
-    private String saveToLocalStorage(File folder, BufferedImage image) throws IOException {
-        if (!folder.exists()) {
-            folder.mkdirs();
-        }
-
-        File imageFile;
-        long id = System.currentTimeMillis();
-        String fileName;
-        while ((imageFile = new File(folder, fileName = "Blueprint" + id + ".png")).exists()) {
-            id++;
-        }
-
-        ImageIO.write(image, "PNG", imageFile);
-
-        return fileName;
-    }
 
     @Override
     protected void startUp() throws Exception {
@@ -238,37 +219,36 @@ public class BlueprintBotSlackService extends AbstractIdleService {
 
         Setup slack = HttpServers.create(address, port);
 
-        slack.post("/events").serve((req, resp) -> {
-
-            System.out.println("Events Post!");
-            if (!validate(configJson.getString("signing-secret"), req, resp)) {
-                return resp;
-            }
-
-            JSONTokener tokener = new JSONTokener(new ByteArrayInputStream(req.body()));
-            JSONObject root = new JSONObject(tokener);
-
-            switch (root.getString("type")) {
-                case "url_verification":
-
-                    resp.header("Cache-Control", "no-cache, no-store, must-revalidate");
-                    resp.header("Pragma", "no-cache");
-                    resp.header("Expires", "0");
-                    resp.body(root.getString("challenge").getBytes());
-                    break;
-                case "event_callback":
-                    if (!validate(configJson.getString("signing-secret"), req, resp)) {
-                        return resp;
-                    }
-                    System.out.println(root.toString(2));
-                    resp.code(200);
-                    break;
-                default:
-                    System.out.println("invalid event type: " + root.getString("type"));
-                    break;
-            }
-            return resp;
-        });
+//        slack.post("/events").serve((req, resp) -> {
+//
+//            System.out.println("Events Post!");
+//            if (!validate(configJson.getString("signing-secret"), req, resp)) {
+//                return resp;
+//            }
+//
+//            JSONTokener tokener = new JSONTokener(new ByteArrayInputStream(req.body()));
+//            JSONObject root = new JSONObject(tokener);
+//
+//            switch (root.getString("type")) {
+//                case "url_verification":
+//
+//                    resp.header("Cache-Control", "no-cache, no-store, must-revalidate");
+//                    resp.header("Pragma", "no-cache");
+//                    resp.header("Expires", "0");
+//                    resp.body(root.getString("challenge").getBytes());
+//                    break;
+//                case "event_callback":
+//                    if (!validate(configJson.getString("signing-secret"), req, resp)) {
+//                        return resp;
+//                    }
+//                    resp.code(200);
+//                    break;
+//                default:
+//                    System.out.println("invalid event type: " + root.getString("type"));
+//                    break;
+//            }
+//            return resp;
+//        });
 
         slack.post("/command").serve((req, resp) -> {
 
